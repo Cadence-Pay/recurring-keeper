@@ -1,6 +1,6 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { z } from 'zod';
-import type { CursorName, PlanRecord, Store, SubRecord } from './types.js';
+import type { ChargeRecord, CursorName, NewCharge, PlanRecord, Store, SubRecord } from './types.js';
 
 /** Bump when the schema changes. Stored in the database as `user_version`. */
 const SCHEMA_VERSION = 1;
@@ -33,16 +33,18 @@ CREATE TABLE IF NOT EXISTS charges (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   sub_id INTEGER NOT NULL,
   plan_id INTEGER NOT NULL,
+  due_ts INTEGER NOT NULL,
   amount TEXT NOT NULL,
   status TEXT NOT NULL,
   attempts INTEGER NOT NULL,
   tx_hash TEXT,
   error_code TEXT,
   error_message TEXT,
+  next_attempt_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS charges_sub ON charges (sub_id);
+CREATE UNIQUE INDEX IF NOT EXISTS charges_sub_due ON charges (sub_id, due_ts);
 
 CREATE TABLE IF NOT EXISTS webhook_deliveries (
   id TEXT PRIMARY KEY,
@@ -82,6 +84,22 @@ const subRow = z.object({
   charges: z.number().int(),
 });
 
+const chargeRow = z.object({
+  id: z.number().int(),
+  sub_id: z.number().int(),
+  plan_id: z.number().int(),
+  due_ts: z.number().int(),
+  amount: z.string(),
+  status: z.enum(['pending', 'succeeded', 'failed', 'superseded']),
+  attempts: z.number().int(),
+  tx_hash: z.string().nullable(),
+  error_code: z.string().nullable(),
+  error_message: z.string().nullable(),
+  next_attempt_at: z.number().int().nullable(),
+  created_at: z.number().int(),
+  updated_at: z.number().int(),
+});
+
 const valueRow = z.object({ value: z.number().int() });
 const idRow = z.object({ id: z.number().int() });
 
@@ -106,6 +124,25 @@ function toSub(row: unknown): SubRecord {
     nextChargeTs: r.next_charge_ts,
     status: r.status,
     charges: r.charges,
+  };
+}
+
+function toCharge(row: unknown): ChargeRecord {
+  const r = chargeRow.parse(row);
+  return {
+    id: r.id,
+    subId: r.sub_id,
+    planId: r.plan_id,
+    dueTs: r.due_ts,
+    amount: r.amount,
+    status: r.status,
+    attempts: r.attempts,
+    txHash: r.tx_hash,
+    errorCode: r.error_code,
+    errorMessage: r.error_message,
+    nextAttemptAt: r.next_attempt_at,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
   };
 }
 
@@ -214,6 +251,62 @@ export class SqliteStore implements Store {
       )
       .all(nowSecs, limit);
     return Promise.resolve(rows.map(toSub));
+  }
+
+  getCharge(subId: number, dueTs: number): Promise<ChargeRecord | undefined> {
+    const row = this.db
+      .prepare('SELECT * FROM charges WHERE sub_id = ? AND due_ts = ?')
+      .get(subId, dueTs);
+    return Promise.resolve(row === undefined ? undefined : toCharge(row));
+  }
+
+  insertCharge(charge: NewCharge): Promise<ChargeRecord> {
+    const now = this.now();
+    const result = this.db
+      .prepare(
+        'INSERT INTO charges (sub_id, plan_id, due_ts, amount, status, attempts, tx_hash, ' +
+          'error_code, error_message, next_attempt_at, created_at, updated_at) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        charge.subId,
+        charge.planId,
+        charge.dueTs,
+        charge.amount,
+        charge.status,
+        charge.attempts,
+        charge.txHash,
+        charge.errorCode,
+        charge.errorMessage,
+        charge.nextAttemptAt,
+        now,
+        now,
+      );
+    return Promise.resolve({
+      ...charge,
+      id: Number(result.lastInsertRowid),
+      createdAt: now,
+      updatedAt: now,
+    });
+  }
+
+  saveCharge(charge: ChargeRecord): Promise<void> {
+    this.db
+      .prepare(
+        'UPDATE charges SET status = ?, attempts = ?, tx_hash = ?, error_code = ?, ' +
+          'error_message = ?, next_attempt_at = ?, updated_at = ? WHERE id = ?',
+      )
+      .run(
+        charge.status,
+        charge.attempts,
+        charge.txHash,
+        charge.errorCode,
+        charge.errorMessage,
+        charge.nextAttemptAt,
+        this.now(),
+        charge.id,
+      );
+    return Promise.resolve();
   }
 
   close(): void {
