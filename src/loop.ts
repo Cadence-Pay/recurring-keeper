@@ -28,6 +28,8 @@ export interface LoopOptions extends ChargeDeps {
   readonly signal: AbortSignal;
   /** Replaceable in tests. */
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  /** Called after each sync that finished without problems. */
+  readonly onSynced?: () => void;
   /** Called at the end of each pass, for example to deliver queued webhooks. */
   readonly afterPass?: () => Promise<unknown>;
 }
@@ -58,6 +60,7 @@ export async function runKeeperLoop(options: LoopOptions): Promise<void> {
         problems: sync.problems.length,
       });
       for (const problem of sync.problems) logger.warn('sync problem', { ...problem });
+      if (sync.problems.length === 0) options.onSynced?.();
       // WAVE-ISSUE(keeper-2): coordination with the soroban-keeper-network plugs in here, for
       // example taking work from or handing it to other keepers. The MVP runs its own simple loop.
       const cycle = await runChargeCycle(options);

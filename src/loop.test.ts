@@ -85,6 +85,61 @@ describe('runKeeperLoop', () => {
   });
 });
 
+describe('runKeeperLoop callbacks', () => {
+  it('calls onSynced after a clean sync and afterPass every pass', async () => {
+    const chain = new FakeChain();
+    chain.addPlan();
+    const controller = new AbortController();
+    let synced = 0;
+    let passes = 0;
+    await runKeeperLoop({
+      chain,
+      store: new SqliteStore(':memory:'),
+      intervalMs: 1,
+      signal: controller.signal,
+      sleep: () => {
+        if (passes === 2) controller.abort();
+        return Promise.resolve();
+      },
+      onSynced: () => {
+        synced++;
+      },
+      afterPass: () => {
+        passes++;
+        return Promise.resolve();
+      },
+    });
+    expect(synced).toBe(2);
+    expect(passes).toBe(2);
+  });
+
+  it('does not call onSynced when the sync had problems, and survives a failing afterPass', async () => {
+    const chain = new FakeChain();
+    chain.addPlan();
+    chain.planFailures.set(1, new Error('boom'));
+    const { logger, lines } = collectingLogger();
+    const controller = new AbortController();
+    let synced = 0;
+    await runKeeperLoop({
+      chain,
+      store: new SqliteStore(':memory:'),
+      logger,
+      intervalMs: 1,
+      signal: controller.signal,
+      sleep: () => {
+        controller.abort();
+        return Promise.resolve();
+      },
+      onSynced: () => {
+        synced++;
+      },
+      afterPass: () => Promise.reject(new Error('delivery store down')),
+    });
+    expect(synced).toBe(0);
+    expect(lines.some((l) => l.message === 'after-pass task failed')).toBe(true);
+  });
+});
+
 describe('abortableSleep', () => {
   it('ends early when aborted', async () => {
     const controller = new AbortController();

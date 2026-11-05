@@ -12,6 +12,7 @@ import { loadConfig } from './config.js';
 import type { Plan, Subscription } from './contract/index.js';
 import {
   ContractCallError,
+  FeeCapError,
   ReadOnlyError,
   RpcError,
   RpcTimeoutError,
@@ -257,6 +258,54 @@ describe('RpcChainClient.charge', () => {
       LIVE,
     );
     await expect(client.charge(1n)).rejects.toBeInstanceOf(SubmissionError);
+  });
+});
+
+describe('fee cap', () => {
+  function withFee(fee: string | undefined): ContractApi {
+    return fakeApi({
+      charge: () =>
+        Promise.resolve({
+          ...simulated(ok(null)),
+          ...(fee === undefined ? {} : { built: { fee } }),
+        }),
+    });
+  }
+  const CAPPED = { ...LIVE, maxFeeStroops: 1000n };
+
+  it('submits when the fee is at or below the cap', async () => {
+    expect(await new RpcChainClient(withFee('1000'), CAPPED).charge(1n)).toEqual({
+      txHash: 'abc123',
+    });
+    expect(await new RpcChainClient(withFee('999'), CAPPED).charge(1n)).toEqual({
+      txHash: 'abc123',
+    });
+  });
+
+  it('refuses to submit when the fee is above the cap', async () => {
+    const send = vi.fn(() => Promise.resolve({ result: ok(null) }));
+    const api = fakeApi({
+      charge: () => Promise.resolve({ ...simulated(ok(null), send), built: { fee: '1001' } }),
+    });
+    const failure = await new RpcChainClient(api, CAPPED).charge(1n).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(FeeCapError);
+    expect((failure as FeeCapError).message).toContain('1001');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a cap is set but the fee is unknown or malformed', async () => {
+    await expect(new RpcChainClient(withFee(undefined), CAPPED).charge(1n)).rejects.toBeInstanceOf(
+      FeeCapError,
+    );
+    await expect(new RpcChainClient(withFee('12abc'), CAPPED).charge(1n)).rejects.toBeInstanceOf(
+      FeeCapError,
+    );
+  });
+
+  it('does not look at the fee when no cap is set', async () => {
+    expect(await new RpcChainClient(withFee(undefined), LIVE).charge(1n)).toEqual({
+      txHash: 'abc123',
+    });
   });
 });
 

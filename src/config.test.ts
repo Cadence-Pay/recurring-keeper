@@ -200,3 +200,55 @@ describe('webhook configuration', () => {
     expect(text).toContain('"webhookMerchants":1');
   });
 });
+
+describe('service settings', () => {
+  it('have safe defaults', () => {
+    const config = loadConfig(baseEnv());
+    expect(config).toMatchObject({
+      pollIntervalSecs: 15,
+      dbPath: './keeper.sqlite',
+      maxFeeStroops: undefined,
+      api: { host: '127.0.0.1', port: 8080, corsOrigins: [] },
+    });
+  });
+
+  it('read custom values', () => {
+    const config = loadConfig({
+      ...baseEnv(),
+      POLL_INTERVAL_SECS: '30',
+      DB_PATH: '/data/k.sqlite',
+      API_HOST: '0.0.0.0',
+      API_PORT: '9000',
+      MAX_FEE_STROOPS: '5000000',
+      CORS_ORIGINS: 'https://a.example.com, https://b.example.com:8443',
+    });
+    expect(config).toMatchObject({
+      pollIntervalSecs: 30,
+      dbPath: '/data/k.sqlite',
+      maxFeeStroops: 5_000_000n,
+      api: {
+        host: '0.0.0.0',
+        port: 9000,
+        corsOrigins: ['https://a.example.com', 'https://b.example.com:8443'],
+      },
+    });
+  });
+
+  it('accept * as a CORS origin', () => {
+    expect(loadConfig({ ...baseEnv(), CORS_ORIGINS: '*' }).api.corsOrigins).toEqual(['*']);
+  });
+
+  it('reject CORS origins with a path or no scheme, and bad numbers', () => {
+    expect(() => loadConfig({ ...baseEnv(), CORS_ORIGINS: 'https://a.example.com/x' })).toThrow(
+      /CORS_ORIGINS/,
+    );
+    expect(() => loadConfig({ ...baseEnv(), CORS_ORIGINS: 'a.example.com' })).toThrow(
+      /CORS_ORIGINS/,
+    );
+    expect(() => loadConfig({ ...baseEnv(), API_PORT: '70000' })).toThrow(/API_PORT/);
+    expect(() => loadConfig({ ...baseEnv(), POLL_INTERVAL_SECS: '0' })).toThrow(
+      /POLL_INTERVAL_SECS/,
+    );
+    expect(() => loadConfig({ ...baseEnv(), MAX_FEE_STROOPS: '-5' })).toThrow(/MAX_FEE_STROOPS/);
+  });
+});

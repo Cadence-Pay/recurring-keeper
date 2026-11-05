@@ -80,6 +80,13 @@ export class ContractCallError extends KeeperError {
   }
 }
 
+/** The fee of a transaction is above the configured limit, or could not be determined. */
+export class FeeCapError extends KeeperError {
+  constructor(operation: string, detail: string) {
+    super('FEE_CAP_EXCEEDED', `${operation} was not submitted: ${detail}`);
+  }
+}
+
 /** A signing operation was requested but no keeper key is configured. */
 export class ReadOnlyError extends KeeperError {
   constructor(operation: string) {

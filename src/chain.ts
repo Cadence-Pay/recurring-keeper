@@ -8,6 +8,7 @@ import type { Config } from './config.js';
 import { Client, type Plan, type Subscription } from './contract/index.js';
 import {
   ContractCallError,
+  FeeCapError,
   KeeperError,
   ReadOnlyError,
   RpcError,
@@ -48,6 +49,8 @@ export interface ChainClient {
 /** The part of a simulated call that the keeper uses. */
 export interface SimulatedCall<T> {
   readonly result: T;
+  /** The built transaction after simulation. Its `fee` (in stroops) is what would be paid at most. */
+  readonly built?: { readonly fee: string } | undefined;
   /**
    * Raw simulation response. When the contract refuses a call, `error` holds the network text,
    * for example `HostError: Error(Contract, #3)`. The SDK's own error value is built from doc
@@ -93,6 +96,11 @@ export interface RpcChainClientOptions {
   readonly txTimeoutMs: number;
   /** When true, `charge` throws ReadOnlyError without touching the network. */
   readonly readOnly: boolean;
+  /**
+   * Highest fee in stroops a single charge may pay. A charge whose simulated fee is higher, or
+   * whose fee is unknown, is not submitted (FeeCapError). Unset means no limit.
+   */
+  readonly maxFeeStroops?: bigint | undefined;
 }
 
 /** The `error` text of a raw simulation response, if it has one. */
@@ -180,6 +188,7 @@ export class RpcChainClient implements ChainClient {
         `simulate ${operation}`,
       );
       this.unwrap(simulated.result, simulated, operation);
+      this.checkFee(simulated, operation);
       const sent = await withTimeout(
         simulated.signAndSend(),
         this.options.txTimeoutMs,
@@ -193,6 +202,25 @@ export class RpcChainClient implements ChainClient {
       return { txHash };
     } catch (error) {
       throw translate(error, operation);
+    }
+  }
+
+  /** Refuse to submit when the fee is above the cap. Fails closed when the fee is unknown. */
+  private checkFee(
+    call: { readonly built?: { readonly fee: string } | undefined },
+    operation: string,
+  ) {
+    const cap = this.options.maxFeeStroops;
+    if (cap === undefined) return;
+    const fee = call.built?.fee;
+    if (fee === undefined || !/^\d+$/.test(fee)) {
+      throw new FeeCapError(operation, 'the transaction fee is unknown and a fee cap is set');
+    }
+    if (BigInt(fee) > cap) {
+      throw new FeeCapError(
+        operation,
+        `the fee of ${fee} stroops is above the cap of ${cap.toString()} stroops`,
+      );
     }
   }
 
@@ -256,5 +284,6 @@ export function createChainClient(config: Config): ChainClient {
     rpcTimeoutMs: config.rpcTimeoutMs,
     txTimeoutMs: config.txTimeoutMs,
     readOnly: keypair === undefined,
+    maxFeeStroops: config.maxFeeStroops,
   });
 }
