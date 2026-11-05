@@ -23,7 +23,7 @@ describe('loadConfig', () => {
       rpcUrl: 'https://soroban-testnet.stellar.org',
       contractId: CONTRACT,
       readOnly: true,
-      rpcTimeoutMs: 15_000,
+      rpcTimeoutMs: 30_000,
       txTimeoutMs: 60_000,
     });
     expect(config.keeperSecretKey).toBeUndefined();
@@ -48,7 +48,7 @@ describe('loadConfig', () => {
   it('treats empty values like unset values', () => {
     const config = loadConfig({ ...baseEnv(), KEEPER_SECRET_KEY: '', RPC_TIMEOUT_MS: '' });
     expect(config.readOnly).toBe(true);
-    expect(config.rpcTimeoutMs).toBe(15_000);
+    expect(config.rpcTimeoutMs).toBe(30_000);
   });
 
   it('accepts a custom timeout', () => {

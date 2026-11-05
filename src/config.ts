@@ -24,7 +24,7 @@ const schema = z.object({
     .regex(/^S[A-Z2-7]{55}$/, 'must be a Stellar secret key')
     .optional(),
   READ_ONLY: flag.default(false),
-  RPC_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(15_000),
+  RPC_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(30_000),
   TX_TIMEOUT_MS: z.coerce.number().int().min(5000).max(300_000).default(60_000),
   WEBHOOK_CONFIG: z.string().optional(),
   MAX_FEE_STROOPS: z.coerce.bigint().positive().optional(),
