@@ -6,7 +6,9 @@ import type {
   DeliveryRecord,
   NewCharge,
   NewDelivery,
+  Page,
   PlanRecord,
+  RevenueLine,
   Store,
   SubRecord,
 } from './types.js';
@@ -120,6 +122,13 @@ const deliveryRow = z.object({
   last_error: z.string().nullable(),
   created_at: z.number().int(),
   updated_at: z.number().int(),
+});
+
+const countRow = z.object({ n: z.number().int() });
+const revenueRow = z.object({
+  token: z.string(),
+  amount: z.string(),
+  periods: z.number().int(),
 });
 
 const valueRow = z.object({ value: z.number().int() });
@@ -289,6 +298,68 @@ export class SqliteStore implements Store {
       )
       .all(nowSecs, limit);
     return Promise.resolve(rows.map(toSub));
+  }
+
+  listPlans(options: {
+    merchant?: string;
+    limit: number;
+    offset: number;
+  }): Promise<Page<PlanRecord>> {
+    const where = options.merchant === undefined ? '' : 'WHERE merchant = ?';
+    const filter: SQLInputValue[] = options.merchant === undefined ? [] : [options.merchant];
+    const total = countRow.parse(
+      this.db.prepare(`SELECT COUNT(*) AS n FROM plans ${where}`).get(...filter),
+    ).n;
+    const rows = this.db
+      .prepare(`SELECT * FROM plans ${where} ORDER BY id LIMIT ? OFFSET ?`)
+      .all(...filter, options.limit, options.offset);
+    return Promise.resolve({ items: rows.map(toPlan), total });
+  }
+
+  listSubsByPlan(planId: number, limit: number, offset: number): Promise<Page<SubRecord>> {
+    const total = countRow.parse(
+      this.db.prepare('SELECT COUNT(*) AS n FROM subscriptions WHERE plan_id = ?').get(planId),
+    ).n;
+    const rows = this.db
+      .prepare('SELECT * FROM subscriptions WHERE plan_id = ? ORDER BY id LIMIT ? OFFSET ?')
+      .all(planId, limit, offset);
+    return Promise.resolve({ items: rows.map(toSub), total });
+  }
+
+  listCharges(subId: number, limit: number, offset: number): Promise<Page<ChargeRecord>> {
+    const total = countRow.parse(
+      this.db.prepare('SELECT COUNT(*) AS n FROM charges WHERE sub_id = ?').get(subId),
+    ).n;
+    const rows = this.db
+      .prepare('SELECT * FROM charges WHERE sub_id = ? ORDER BY due_ts, id LIMIT ? OFFSET ?')
+      .all(subId, limit, offset);
+    return Promise.resolve({ items: rows.map(toCharge), total });
+  }
+
+  getRevenue(merchant: string): Promise<RevenueLine[]> {
+    // Amounts are 128-bit, so SQLite only groups. The multiplication is done with BigInt.
+    const rows = this.db
+      .prepare(
+        'SELECT p.token AS token, p.amount AS amount, SUM(1 + s.charges) AS periods ' +
+          'FROM subscriptions s JOIN plans p ON p.id = s.plan_id WHERE p.merchant = ? ' +
+          'GROUP BY p.token, p.amount ORDER BY p.token',
+      )
+      .all(merchant)
+      .map((row) => revenueRow.parse(row));
+    const lines = new Map<string, { total: bigint; payments: number }>();
+    for (const row of rows) {
+      const line = lines.get(row.token) ?? { total: 0n, payments: 0 };
+      line.total += BigInt(row.amount) * BigInt(row.periods);
+      line.payments += row.periods;
+      lines.set(row.token, line);
+    }
+    return Promise.resolve(
+      [...lines].map(([token, line]) => ({
+        token,
+        total: line.total.toString(),
+        payments: line.payments,
+      })),
+    );
   }
 
   getCharge(subId: number, dueTs: number): Promise<ChargeRecord | undefined> {

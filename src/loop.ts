@@ -58,6 +58,8 @@ export async function runKeeperLoop(options: LoopOptions): Promise<void> {
         problems: sync.problems.length,
       });
       for (const problem of sync.problems) logger.warn('sync problem', { ...problem });
+      // WAVE-ISSUE(keeper-2): coordination with the soroban-keeper-network plugs in here, for
+      // example taking work from or handing it to other keepers. The MVP runs its own simple loop.
       const cycle = await runChargeCycle(options);
       if (cycle.due > 0) logger.info('charge cycle', { ...cycle });
     } catch (error) {

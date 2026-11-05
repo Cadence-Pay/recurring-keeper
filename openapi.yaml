@@ -1,0 +1,258 @@
+openapi: 3.0.3
+info:
+  title: Stellar Recurring keeper read API
+  version: 0.1.0
+  description: |
+    Read-only JSON API of the keeper. It serves public chain data as last copied by the keeper's
+    sync, so results can lag the chain by one sync interval. There is no authentication and no
+    rate limiting: run it behind a reverse proxy if it is exposed to the internet.
+
+    Amounts are decimal strings in the token's smallest unit (the contract uses 128-bit integers).
+    Timestamps are Unix seconds.
+
+    This service has not been audited.
+servers:
+  - url: http://127.0.0.1:8080
+    description: Default listen address (set with API_HOST and API_PORT)
+paths:
+  /health:
+    get:
+      summary: Keeper status
+      responses:
+        '200':
+          description: The keeper is running
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /plans:
+    get:
+      summary: List plans
+      parameters:
+        - name: merchant
+          in: query
+          description: Only plans of this merchant account
+          schema: { $ref: '#/components/schemas/Account' }
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: A page of plans, ordered by id
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlanPage'
+        '400': { $ref: '#/components/responses/InvalidInput' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /plans/{id}/subscriptions:
+    get:
+      summary: List the subscriptions of a plan
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: A page of subscriptions, ordered by id (empty if the plan has none)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionPage'
+        '400': { $ref: '#/components/responses/InvalidInput' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /subscriptions/{id}/charges:
+    get:
+      summary: List the charge records of a subscription
+      description: |
+        One record per billing period the keeper tried to charge. Charges made by other parties are
+        not listed here, but are counted in `charges` of the subscription.
+      parameters:
+        - $ref: '#/components/parameters/Id'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: A page of charge records, ordered by due time
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChargePage'
+        '400': { $ref: '#/components/responses/InvalidInput' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/Internal' }
+  /merchants/{address}/revenue:
+    get:
+      summary: What a merchant has received
+      description: |
+        Per token: for every subscription to the merchant's plans, the first period paid at
+        subscribe plus one payment per successful charge, whoever made the charge. Counted from the
+        subscriptions as of the last sync (`asOf`). A merchant without plans gets an empty list.
+      parameters:
+        - name: address
+          in: path
+          required: true
+          schema: { $ref: '#/components/schemas/Account' }
+      responses:
+        '200':
+          description: Revenue lines
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Revenue'
+        '400': { $ref: '#/components/responses/InvalidInput' }
+        '500': { $ref: '#/components/responses/Internal' }
+components:
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+    Offset:
+      name: offset
+      in: query
+      schema: { type: integer, minimum: 0, default: 0 }
+  responses:
+    InvalidInput:
+      description: A parameter is missing or invalid
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: No such plan or subscription (or no such route)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Internal:
+      description: Unexpected failure. The message is generic on purpose.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Account:
+      type: string
+      pattern: '^G[A-Z2-7]{55}$'
+      description: Stellar account address
+    Health:
+      type: object
+      required: [status, network, contractId, readOnly, lastSyncAt]
+      properties:
+        status: { type: string, enum: [ok] }
+        network: { type: string, example: testnet }
+        contractId: { type: string }
+        readOnly: { type: boolean, description: True when this keeper cannot submit charges }
+        lastSyncAt:
+          type: integer
+          nullable: true
+          description: When the last sync finished, or null if none has finished yet
+    Plan:
+      type: object
+      required: [id, merchant, token, amount, periodSecs, active]
+      properties:
+        id: { type: integer }
+        merchant: { $ref: '#/components/schemas/Account' }
+        token: { type: string, description: Token contract id }
+        amount: { type: string, example: '10000000' }
+        periodSecs: { type: integer }
+        active: { type: boolean }
+    Subscription:
+      type: object
+      required: [id, planId, subscriber, nextChargeTs, status, charges]
+      properties:
+        id: { type: integer }
+        planId: { type: integer }
+        subscriber: { $ref: '#/components/schemas/Account' }
+        nextChargeTs: { type: integer }
+        status: { type: string, enum: [Active, Cancelled] }
+        charges: { type: integer, description: Successful charges after the first payment }
+    Charge:
+      type: object
+      required: [id, subId, planId, dueTs, amount, status, attempts]
+      properties:
+        id: { type: integer }
+        subId: { type: integer }
+        planId: { type: integer }
+        dueTs:
+          { type: integer, description: The subscription's next_charge_ts this record is about }
+        amount: { type: string }
+        status: { type: string, enum: [pending, succeeded, failed, superseded] }
+        attempts: { type: integer }
+        txHash: { type: string, nullable: true }
+        errorCode:
+          { type: string, nullable: true, description: Contract error name or keeper error code }
+        nextAttemptAt: { type: integer, nullable: true }
+        createdAt: { type: integer }
+        updatedAt: { type: integer }
+    RevenueLine:
+      type: object
+      required: [token, total, payments]
+      properties:
+        token: { type: string }
+        total: { type: string }
+        payments: { type: integer }
+    Revenue:
+      type: object
+      required: [merchant, asOf, lines]
+      properties:
+        merchant: { $ref: '#/components/schemas/Account' }
+        asOf: { type: integer, nullable: true }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/RevenueLine' }
+    PlanPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Plan' }
+    SubscriptionPage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Subscription' }
+    ChargePage:
+      allOf:
+        - $ref: '#/components/schemas/PageInfo'
+        - type: object
+          required: [items]
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Charge' }
+    PageInfo:
+      type: object
+      required: [total, limit, offset]
+      properties:
+        total: { type: integer, description: Number of matching items in all pages }
+        limit: { type: integer }
+        offset: { type: integer }
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, enum: [INVALID_INPUT, NOT_FOUND, INTERNAL] }
+            message: { type: string }
+            details:
+              type: array
+              description: Present for INVALID_INPUT
+              items:
+                type: object
+                properties:
+                  path: { type: string }
+                  message: { type: string }

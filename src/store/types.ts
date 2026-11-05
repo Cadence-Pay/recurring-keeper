@@ -91,10 +91,29 @@ export type NewDelivery = Omit<DeliveryRecord, 'createdAt' | 'updatedAt'>;
  */
 export type CursorName = 'plans' | 'subs' | 'bootstrap';
 
+/** One page of a list, with the total number of matching items. */
+export interface Page<T> {
+  readonly items: T[];
+  readonly total: number;
+}
+
+/**
+ * Money received by a merchant in one token, counted from the subscriptions the keeper has
+ * synced: every subscription paid its first period at subscribe plus one payment per charge.
+ */
+export interface RevenueLine {
+  readonly token: string;
+  /** Total in the token's smallest unit, as a decimal string. */
+  readonly total: string;
+  /** Number of payments the total is made of. */
+  readonly payments: number;
+}
+
 /**
  * Storage used by the keeper. All methods return promises so that a database server can be
  * plugged in later. The SQLite implementation is the only one today.
  */
+// WAVE-ISSUE(keeper-3): a Postgres adapter implements this interface. The MVP has SQLite only.
 export interface Store {
   /** Highest id of this kind that has been copied from the chain. 0 means none yet. */
   getCursor(name: CursorName): Promise<number>;
@@ -112,6 +131,18 @@ export interface Store {
   listActiveSubIds(): Promise<number[]>;
   /** Active subscriptions whose next charge time is at or before `nowSecs`, oldest due first. */
   listDueSubs(nowSecs: number, limit: number): Promise<SubRecord[]>;
+  /** Plans, newest id last, optionally only those of one merchant. */
+  listPlans(options: {
+    merchant?: string;
+    limit: number;
+    offset: number;
+  }): Promise<Page<PlanRecord>>;
+  /** Subscriptions to one plan, by id. */
+  listSubsByPlan(planId: number, limit: number, offset: number): Promise<Page<SubRecord>>;
+  /** Charge records of one subscription, by due time. */
+  listCharges(subId: number, limit: number, offset: number): Promise<Page<ChargeRecord>>;
+  /** What a merchant has received, per token, as of the last sync. */
+  getRevenue(merchant: string): Promise<RevenueLine[]>;
   /** The charge record for a subscription period, if there is one. */
   getCharge(subId: number, dueTs: number): Promise<ChargeRecord | undefined>;
   /** Store a new charge record and return it with its id. */
