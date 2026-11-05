@@ -157,6 +157,24 @@ describe('GET /plans', () => {
   });
 });
 
+describe('GET /plans/:id', () => {
+  it('returns one plan', async () => {
+    const { app } = await seeded();
+    const res = await get<PlanJson>(app, '/plans/3');
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ id: 3, merchant: MERCHANT, amount: (2n ** 100n).toString() });
+  });
+
+  it('answers 404 for an unknown plan and 400 for a bad id', async () => {
+    const { app } = await seeded();
+    const missing = await get<ErrorJson>(app, '/plans/99');
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe('NOT_FOUND');
+    expect((await get<ErrorJson>(app, '/plans/abc')).status).toBe(400);
+    expect((await get<ErrorJson>(app, '/plans/0')).status).toBe(400);
+  });
+});
+
 describe('GET /plans/:id/subscriptions', () => {
   it('lists the subscriptions of a plan', async () => {
     const { app } = await seeded();

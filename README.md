@@ -100,6 +100,7 @@ Empty values count as unset. A bad value stops the keeper at start with a messag
 | --------------------------------- | -------------------------------------------------------------------- |
 | `/health`                         | status, network, contract id, `readOnly`, time of last finished sync |
 | `/plans?merchant=&limit=&offset=` | plans                                                                |
+| `/plans/:id`                      | one plan                                                             |
 | `/plans/:id/subscriptions`        | subscriptions of a plan                                              |
 | `/subscriptions/:id/charges`      | the keeper's charge records for a subscription                       |
 | `/merchants/:address/revenue`     | per token: first payments plus every charge, whoever made it         |

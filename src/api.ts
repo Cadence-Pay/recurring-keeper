@@ -88,7 +88,7 @@ function errorBody(code: string, message: string, details?: unknown) {
  * `inject` in tests.
  *
  * Routes (all GET, JSON, public chain data only, no authentication):
- * `/health`, `/plans?merchant=&limit=&offset=`, `/plans/:id/subscriptions`,
+ * `/health`, `/plans?merchant=&limit=&offset=`, `/plans/:id`, `/plans/:id/subscriptions`,
  * `/subscriptions/:id/charges` and `/merchants/:address/revenue`. Input is validated with zod;
  * bad input gives 400, unknown ids 404, anything else 500 with a generic message. Errors always
  * have the shape `{ "error": { "code", "message", "details"? } }`. See `openapi.yaml`.
@@ -150,6 +150,13 @@ export function buildApi(options: ApiOptions): FastifyInstance {
       limit: query.limit,
       offset: query.offset,
     };
+  });
+
+  app.get('/plans/:id', async (request) => {
+    const { id: planId } = idParams.parse(request.params);
+    const plan = await store.getPlan(planId);
+    if (plan === undefined) throw new NotFoundError(`Plan ${String(planId)}`);
+    return planJson(plan);
   });
 
   app.get('/plans/:id/subscriptions', async (request) => {
