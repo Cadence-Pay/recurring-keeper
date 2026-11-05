@@ -127,3 +127,76 @@ describe('describeConfig', () => {
     expect(describeConfig(loadConfig(baseEnv())).keeperSecretKey).toBe('unset');
   });
 });
+
+const MERCHANT = 'GAIPBT4WCBUALPT77TFYIK4LAHN67QNFM4OOTX3VEH4L6URNOUFJOTSQ';
+
+function hooks(entry: Record<string, unknown>): Record<string, string> {
+  return { ...baseEnv(), WEBHOOK_CONFIG: JSON.stringify({ [MERCHANT]: entry }) };
+}
+
+describe('webhook configuration', () => {
+  it('is empty when not set', () => {
+    expect(loadConfig(baseEnv()).webhooks).toEqual({});
+  });
+
+  it('reads the endpoint and takes the secret from the named variable', () => {
+    const config = loadConfig({
+      ...hooks({ url: 'https://hooks.example.com/x', secretEnv: 'HOOK_SECRET_A' }),
+      HOOK_SECRET_A: 'a-long-enough-secret-value',
+    });
+    expect(config.webhooks[MERCHANT]).toEqual({
+      url: 'https://hooks.example.com/x',
+      secret: 'a-long-enough-secret-value',
+    });
+  });
+
+  it('allows plain http only for localhost', () => {
+    const env = { HOOK_SECRET_A: 'a-long-enough-secret-value' };
+    expect(
+      loadConfig({
+        ...hooks({ url: 'http://localhost:9000/x', secretEnv: 'HOOK_SECRET_A' }),
+        ...env,
+      }).webhooks[MERCHANT]?.url,
+    ).toBe('http://localhost:9000/x');
+    expect(() =>
+      loadConfig({ ...hooks({ url: 'http://example.com/x', secretEnv: 'HOOK_SECRET_A' }), ...env }),
+    ).toThrow(/must use https/);
+  });
+
+  it('rejects a missing or short secret without repeating it', () => {
+    const entry = { url: 'https://hooks.example.com/x', secretEnv: 'HOOK_SECRET_A' };
+    expect(() => loadConfig(hooks(entry))).toThrow(/HOOK_SECRET_A/);
+    try {
+      loadConfig({ ...hooks(entry), HOOK_SECRET_A: 'short' });
+      expect.unreachable('should have thrown');
+    } catch (error) {
+      expect((error as Error).message).toContain('at least 16');
+      expect((error as Error).message).not.toContain('short');
+    }
+  });
+
+  it('rejects invalid JSON, bad merchant addresses and bad variable names', () => {
+    expect(() => loadConfig({ ...baseEnv(), WEBHOOK_CONFIG: '{not json' })).toThrow(
+      /not valid JSON/,
+    );
+    expect(() =>
+      loadConfig({
+        ...baseEnv(),
+        WEBHOOK_CONFIG: JSON.stringify({ GNOPE: { url: 'https://a.example', secretEnv: 'X_Y' } }),
+      }),
+    ).toThrow(/WEBHOOK_CONFIG/);
+    expect(() =>
+      loadConfig(hooks({ url: 'https://hooks.example.com/x', secretEnv: 'lower-case' })),
+    ).toThrow(/environment variable name/);
+  });
+
+  it('keeps webhook secrets out of describeConfig', () => {
+    const config = loadConfig({
+      ...hooks({ url: 'https://hooks.example.com/x', secretEnv: 'HOOK_SECRET_A' }),
+      HOOK_SECRET_A: 'a-long-enough-secret-value',
+    });
+    const text = JSON.stringify(describeConfig(config));
+    expect(text).not.toContain('a-long-enough-secret-value');
+    expect(text).toContain('"webhookMerchants":1');
+  });
+});

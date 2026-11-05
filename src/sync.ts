@@ -1,7 +1,10 @@
 import type { ChainClient } from './chain.js';
+import type { EventSink } from './events.js';
 import { describe } from './errors.js';
+import type { Logger } from './logger.js';
 import { toPlanRecord, toSubRecord } from './mappers.js';
 import type { Store } from './store/types.js';
+import { recordSub } from './subs.js';
 
 /** One id that could not be synced. */
 export interface SyncProblem {
@@ -28,6 +31,11 @@ export interface SyncReport {
 export interface SyncOptions {
   /** How many chain reads may run at the same time while refreshing. Default 5. */
   readonly concurrency?: number;
+  /** Receives `subscription.created` and `subscription.cancelled` events. */
+  readonly sink?: EventSink;
+  /** Clock in seconds, for event timestamps. */
+  readonly now?: () => number;
+  readonly logger?: Logger;
 }
 
 /** Run `work` over `items` with at most `limit` running at once. */
@@ -45,6 +53,9 @@ async function inBatches<T>(items: readonly T[], limit: number, work: (item: T) 
  * it reads again every plan and subscription that was active, to pick up deactivations, charges
  * and cancellations. An id that fails is reported in `problems` and does not stop the others.
  * New ids are always tried before refreshes. The cursor never skips an id that failed.
+ *
+ * Subscription events go to `options.sink`, except during the very first pass on an empty
+ * database, so that history is not replayed to merchants.
  *
  * @param chain - Where to read from.
  * @param store - Where to write to.
@@ -66,6 +77,13 @@ export async function syncOnce(
   const subCount = Number(await chain.getSubCount());
 
   // Snapshot what to refresh before adding new ids, so new ids are not read twice.
+  const announce = (await store.getCursor('bootstrap')) === 1;
+  const context = {
+    store,
+    ...(options.sink === undefined ? {} : { sink: options.sink }),
+    ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
+  };
   const refreshPlanIds = await store.listActivePlanIds();
   const refreshSubIds = await store.listActiveSubIds();
 
@@ -82,7 +100,8 @@ export async function syncOnce(
 
   for (let id = (await store.getCursor('subs')) + 1; id <= subCount; id++) {
     try {
-      await store.upsertSub(toSubRecord(BigInt(id), await chain.getSubscription(BigInt(id))));
+      const record = toSubRecord(BigInt(id), await chain.getSubscription(BigInt(id)));
+      await recordSub(context, record, { isNew: true, announce });
       await store.setCursor('subs', id);
       newSubs++;
     } catch (error) {
@@ -104,12 +123,14 @@ export async function syncOnce(
   let refreshedSubs = 0;
   await inBatches(refreshSubIds, concurrency, async (id) => {
     try {
-      await store.upsertSub(toSubRecord(BigInt(id), await chain.getSubscription(BigInt(id))));
+      const record = toSubRecord(BigInt(id), await chain.getSubscription(BigInt(id)));
+      await recordSub(context, record, { isNew: false, announce });
       refreshedSubs++;
     } catch (error) {
       problems.push({ kind: 'subscription', id, message: describe(error) });
     }
   });
 
+  if (problems.length === 0) await store.setCursor('bootstrap', 1);
   return { newPlans, newSubs, refreshedPlans, refreshedSubs, problems };
 }

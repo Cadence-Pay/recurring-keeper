@@ -28,6 +28,8 @@ export interface LoopOptions extends ChargeDeps {
   readonly signal: AbortSignal;
   /** Replaceable in tests. */
   readonly sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+  /** Called at the end of each pass, for example to deliver queued webhooks. */
+  readonly afterPass?: () => Promise<unknown>;
 }
 
 /**
@@ -44,7 +46,11 @@ export async function runKeeperLoop(options: LoopOptions): Promise<void> {
   const sleep = options.sleep ?? abortableSleep;
   while (!options.signal.aborted) {
     try {
-      const sync = await syncOnce(options.chain, options.store);
+      const sync = await syncOnce(options.chain, options.store, {
+        ...(options.sink === undefined ? {} : { sink: options.sink }),
+        ...(options.now === undefined ? {} : { now: options.now }),
+        logger,
+      });
       logger.info('synced', {
         newPlans: sync.newPlans,
         newSubs: sync.newSubs,
@@ -56,6 +62,11 @@ export async function runKeeperLoop(options: LoopOptions): Promise<void> {
       if (cycle.due > 0) logger.info('charge cycle', { ...cycle });
     } catch (error) {
       logger.error('keeper pass failed', { error: describe(error) });
+    }
+    try {
+      await options.afterPass?.();
+    } catch (error) {
+      logger.error('after-pass task failed', { error: describe(error) });
     }
     await sleep(options.intervalMs, options.signal);
   }

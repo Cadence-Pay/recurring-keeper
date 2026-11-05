@@ -63,8 +63,33 @@ export interface ChargeRecord {
 /** A charge record that has not been stored yet. */
 export type NewCharge = Omit<ChargeRecord, 'id' | 'createdAt' | 'updatedAt'>;
 
-/** Which counter of the sync cursor to read or write. */
-export type CursorName = 'plans' | 'subs';
+export type DeliveryStatus = 'pending' | 'delivered' | 'failed';
+
+/** One webhook to deliver to a merchant. The id is also sent to the merchant for idempotency. */
+export interface DeliveryRecord {
+  readonly id: string;
+  readonly merchant: string;
+  readonly eventType: string;
+  /** The exact JSON text that is sent and signed. */
+  readonly payload: string;
+  readonly status: DeliveryStatus;
+  /** Failed attempts so far. */
+  readonly attempts: number;
+  /** Earliest time to try again, or null when it can be tried now. */
+  readonly nextAttemptAt: number | null;
+  readonly lastError: string | null;
+  readonly createdAt: number;
+  readonly updatedAt: number;
+}
+
+/** A delivery that has not been stored yet. */
+export type NewDelivery = Omit<DeliveryRecord, 'createdAt' | 'updatedAt'>;
+
+/**
+ * Which counter of the sync cursor to read or write. `bootstrap` is 0 until the first sync pass
+ * has finished and 1 afterwards.
+ */
+export type CursorName = 'plans' | 'subs' | 'bootstrap';
 
 /**
  * Storage used by the keeper. All methods return promises so that a database server can be
@@ -93,6 +118,13 @@ export interface Store {
   insertCharge(charge: NewCharge): Promise<ChargeRecord>;
   /** Replace the mutable fields of an existing charge record. */
   saveCharge(charge: ChargeRecord): Promise<void>;
+  /** Store a new webhook delivery. */
+  insertDelivery(delivery: NewDelivery): Promise<void>;
+  getDelivery(id: string): Promise<DeliveryRecord | undefined>;
+  /** Pending deliveries whose next attempt time has come, oldest first. */
+  listDueDeliveries(nowSecs: number, limit: number): Promise<DeliveryRecord[]>;
+  /** Replace the mutable fields of an existing delivery. */
+  saveDelivery(delivery: DeliveryRecord): Promise<void>;
   /** Release the underlying resources. */
   close(): void;
 }

@@ -231,7 +231,8 @@ describe('runChargeCycle', () => {
     const report = await runChargeCycle(deps);
     expect(report).toMatchObject({ superseded: 1, charged: 0, failed: 0 });
     expect((await store.getSub(1))?.status).toBe('Cancelled');
-    expect(events).toEqual([]);
+    // The cancellation is noticed while refreshing, so merchants hear about it exactly once.
+    expect(events.map((e) => e.type)).toEqual(['subscription.cancelled']);
   });
 
   it('skips a due subscription whose plan is not stored yet', async () => {

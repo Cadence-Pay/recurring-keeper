@@ -8,6 +8,7 @@ import {
   describe,
 } from './errors.js';
 import { toSubRecord } from './mappers.js';
+import { recordSub } from './subs.js';
 import { silentLogger, type Logger } from './logger.js';
 import type { ChargeRecord, PlanRecord, Store, SubRecord } from './store/types.js';
 
@@ -122,7 +123,7 @@ export async function runChargeCycle(deps: ChargeDeps): Promise<ChargeCycleRepor
   const refresh = async (subId: number): Promise<SubRecord | undefined> => {
     try {
       const record = toSubRecord(BigInt(subId), await chain.getSubscription(BigInt(subId)));
-      await store.upsertSub(record);
+      await recordSub({ store, sink, now, logger }, record, { isNew: false, announce: true });
       return record;
     } catch (error) {
       logger.warn('could not refresh subscription', { subId, error: describe(error) });

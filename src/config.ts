@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ConfigError } from './errors.js';
+import type { WebhookEndpoints } from './webhooks.js';
 
 /**
  * Well-known network passphrases. They are used only to catch a mismatch between the configured
@@ -25,7 +26,54 @@ const schema = z.object({
   READ_ONLY: flag.default(false),
   RPC_TIMEOUT_MS: z.coerce.number().int().min(1000).max(120_000).default(15_000),
   TX_TIMEOUT_MS: z.coerce.number().int().min(5000).max(300_000).default(60_000),
+  WEBHOOK_CONFIG: z.string().optional(),
 });
+
+/**
+ * Shape of `WEBHOOK_CONFIG`: a JSON object from merchant address to its endpoint. The secret is
+ * not in the JSON. `secretEnv` names the environment variable that holds it.
+ */
+const webhookConfig = z.record(
+  z.string().regex(/^G[A-Z2-7]{55}$/, 'must be a merchant address starting with G'),
+  z.object({
+    url: z.url({ protocol: /^https?$/ }),
+    secretEnv: z.string().regex(/^[A-Z][A-Z0-9_]*$/, 'must be an environment variable name'),
+  }),
+);
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+function parseWebhooks(raw: string | undefined, env: Record<string, string>): WebhookEndpoints {
+  if (raw === undefined) return {};
+  let json: unknown;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new ConfigError('WEBHOOK_CONFIG is not valid JSON');
+  }
+  const parsed = webhookConfig.safeParse(json);
+  if (!parsed.success) {
+    const problems = parsed.error.issues.map(
+      (issue) => `${issue.path.map(String).join('.') || 'WEBHOOK_CONFIG'}: ${issue.message}`,
+    );
+    throw new ConfigError(`Invalid WEBHOOK_CONFIG. ${problems.join('; ')}`);
+  }
+  const endpoints: Record<string, { url: string; secret: string }> = {};
+  for (const [merchant, entry] of Object.entries(parsed.data)) {
+    const url = new URL(entry.url);
+    if (url.protocol !== 'https:' && !LOCAL_HOSTS.has(url.hostname)) {
+      throw new ConfigError(`Webhook URL for ${merchant} must use https`);
+    }
+    const secret = env[entry.secretEnv];
+    if (secret === undefined || secret.length < 16) {
+      throw new ConfigError(
+        `Environment variable ${entry.secretEnv} (webhook secret for ${merchant}) must be set to at least 16 characters`,
+      );
+    }
+    endpoints[merchant] = { url: entry.url, secret };
+  }
+  return endpoints;
+}
 
 /** Validated keeper configuration. */
 export interface Config {
@@ -42,6 +90,8 @@ export interface Config {
   readonly rpcTimeoutMs: number;
   /** Time allowed to submit a transaction and wait for it to be included. */
   readonly txTimeoutMs: number;
+  /** Webhook endpoints by merchant address, with their secrets. Never log this object. */
+  readonly webhooks: WebhookEndpoints;
 }
 
 /**
@@ -83,6 +133,7 @@ export function loadConfig(env: Record<string, string | undefined>): Config {
     readOnly: c.READ_ONLY || c.KEEPER_SECRET_KEY === undefined,
     rpcTimeoutMs: c.RPC_TIMEOUT_MS,
     txTimeoutMs: c.TX_TIMEOUT_MS,
+    webhooks: parseWebhooks(c.WEBHOOK_CONFIG, present),
   };
 }
 
@@ -101,5 +152,6 @@ export function describeConfig(config: Config): Record<string, string | number |
     readOnly: config.readOnly,
     rpcTimeoutMs: config.rpcTimeoutMs,
     txTimeoutMs: config.txTimeoutMs,
+    webhookMerchants: Object.keys(config.webhooks).length,
   };
 }

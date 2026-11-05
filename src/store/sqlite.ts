@@ -1,6 +1,15 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { z } from 'zod';
-import type { ChargeRecord, CursorName, NewCharge, PlanRecord, Store, SubRecord } from './types.js';
+import type {
+  ChargeRecord,
+  CursorName,
+  DeliveryRecord,
+  NewCharge,
+  NewDelivery,
+  PlanRecord,
+  Store,
+  SubRecord,
+} from './types.js';
 
 /** Bump when the schema changes. Stored in the database as `user_version`. */
 const SCHEMA_VERSION = 1;
@@ -100,6 +109,19 @@ const chargeRow = z.object({
   updated_at: z.number().int(),
 });
 
+const deliveryRow = z.object({
+  id: z.string(),
+  merchant: z.string(),
+  event_type: z.string(),
+  payload: z.string(),
+  status: z.enum(['pending', 'delivered', 'failed']),
+  attempts: z.number().int(),
+  next_attempt_at: z.number().int().nullable(),
+  last_error: z.string().nullable(),
+  created_at: z.number().int(),
+  updated_at: z.number().int(),
+});
+
 const valueRow = z.object({ value: z.number().int() });
 const idRow = z.object({ id: z.number().int() });
 
@@ -141,6 +163,22 @@ function toCharge(row: unknown): ChargeRecord {
     errorCode: r.error_code,
     errorMessage: r.error_message,
     nextAttemptAt: r.next_attempt_at,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+function toDelivery(row: unknown): DeliveryRecord {
+  const r = deliveryRow.parse(row);
+  return {
+    id: r.id,
+    merchant: r.merchant,
+    eventType: r.event_type,
+    payload: r.payload,
+    status: r.status,
+    attempts: r.attempts,
+    nextAttemptAt: r.next_attempt_at,
+    lastError: r.last_error,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };
@@ -305,6 +343,60 @@ export class SqliteStore implements Store {
         charge.nextAttemptAt,
         this.now(),
         charge.id,
+      );
+    return Promise.resolve();
+  }
+
+  insertDelivery(delivery: NewDelivery): Promise<void> {
+    const now = this.now();
+    this.db
+      .prepare(
+        'INSERT INTO webhook_deliveries (id, merchant, event_type, payload, status, attempts, ' +
+          'next_attempt_at, last_error, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      )
+      .run(
+        delivery.id,
+        delivery.merchant,
+        delivery.eventType,
+        delivery.payload,
+        delivery.status,
+        delivery.attempts,
+        delivery.nextAttemptAt,
+        delivery.lastError,
+        now,
+        now,
+      );
+    return Promise.resolve();
+  }
+
+  getDelivery(id: string): Promise<DeliveryRecord | undefined> {
+    const row = this.db.prepare('SELECT * FROM webhook_deliveries WHERE id = ?').get(id);
+    return Promise.resolve(row === undefined ? undefined : toDelivery(row));
+  }
+
+  listDueDeliveries(nowSecs: number, limit: number): Promise<DeliveryRecord[]> {
+    const rows = this.db
+      .prepare(
+        "SELECT * FROM webhook_deliveries WHERE status = 'pending' " +
+          'AND (next_attempt_at IS NULL OR next_attempt_at <= ?) ORDER BY created_at, id LIMIT ?',
+      )
+      .all(nowSecs, limit);
+    return Promise.resolve(rows.map(toDelivery));
+  }
+
+  saveDelivery(delivery: DeliveryRecord): Promise<void> {
+    this.db
+      .prepare(
+        'UPDATE webhook_deliveries SET status = ?, attempts = ?, next_attempt_at = ?, ' +
+          'last_error = ?, updated_at = ? WHERE id = ?',
+      )
+      .run(
+        delivery.status,
+        delivery.attempts,
+        delivery.nextAttemptAt,
+        delivery.lastError,
+        this.now(),
+        delivery.id,
       );
     return Promise.resolve();
   }
