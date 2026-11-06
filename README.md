@@ -6,7 +6,7 @@ This is **not** payment streaming. It is one discrete charge per period.
 
 ## Status
 
-Implemented and covered by unit tests (144 passing):
+Implemented and covered by unit tests (`pnpm test`; 146 at the time of writing):
 
 - sync of plans and subscriptions from the chain into SQLite,
 - a charge loop with retries, backoff, a give-up rule and handling of a second keeper charging first,
@@ -14,7 +14,7 @@ Implemented and covered by unit tests (144 passing):
 - a read API with an OpenAPI description,
 - a per-transaction fee cap.
 
-Checked against the real testnet: reading the deployed contract through the built service and its API (read only). The live charge path (a signed submit through this service) has **not** been run yet; the contract's own live test used the CLI. That end-to-end run belongs to the integration phase.
+Run for real on the **testnet**: the built service, with a signing key and a fee cap, found a subscription due and charged it twice on its own (the second charge needed two retries after the public RPC timed out, exactly as designed), and its API matched the chain. The run is written up in the repository's `docs/DEMO.md`. Webhook delivery has only been tested against fake receivers, not a real merchant server. Nothing has run on mainnet.
 
 **Audit status: the contract this service talks to has not been audited. This service has not been audited either.**
 

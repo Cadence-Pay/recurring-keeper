@@ -62,4 +62,13 @@ describe('error classes', () => {
     expect(describeValue('y')).toBe('y');
     expect(describeValue(42)).toBe('unknown error');
   });
+
+  it('describe cuts very long text, but keeps the start where the cause is', () => {
+    const long = `HostError: Error(Contract, #7) ${'diagnostic line '.repeat(200)}`;
+    const text = describeValue(new Error(long));
+    expect(text.length).toBeLessThan(450);
+    expect(text.startsWith('HostError: Error(Contract, #7)')).toBe(true);
+    expect(text.endsWith('(cut)')).toBe(true);
+    expect(describeValue('short')).toBe('short');
+  });
 });

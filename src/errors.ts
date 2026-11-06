@@ -94,11 +94,14 @@ export class ReadOnlyError extends KeeperError {
   }
 }
 
-/** Short text for an unknown thrown value. */
+/** Longest error text that is logged or stored. The RPC can answer with pages of diagnostics. */
+const MAX_ERROR_TEXT = 400;
+
+/** Short text for an unknown thrown value, cut to a sensible length. */
 export function describe(value: unknown): string {
-  if (value instanceof Error) return value.message;
-  if (typeof value === 'string') return value;
-  return 'unknown error';
+  const text =
+    value instanceof Error ? value.message : typeof value === 'string' ? value : 'unknown error';
+  return text.length <= MAX_ERROR_TEXT ? text : `${text.slice(0, MAX_ERROR_TEXT)}… (cut)`;
 }
 
 /** Pull the numeric contract error code out of a Soroban error message, if there is one. */
