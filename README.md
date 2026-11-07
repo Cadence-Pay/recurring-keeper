@@ -14,7 +14,7 @@ Implemented and covered by unit tests (`pnpm test`; 146 at the time of writing):
 - a read API with an OpenAPI description,
 - a per-transaction fee cap.
 
-Run for real on the **testnet**: the built service, with a signing key and a fee cap, found a subscription due and charged it twice on its own (the second charge needed two retries after the public RPC timed out, exactly as designed), and its API matched the chain. The run is written up in the repository's `docs/DEMO.md`. Webhook delivery has only been tested against fake receivers, not a real merchant server. Nothing has run on mainnet.
+Run for real on the **testnet**: the built service, with a signing key and a fee cap, found a subscription due and charged it twice on its own (the second charge needed two retries after the public RPC timed out, exactly as designed), and its API matched the chain. The run is written up in the contracts repository's [docs/DEMO.md](https://github.com/Cadence-Pay/recurring-contracts/blob/main/docs/DEMO.md). Webhook delivery has only been tested against fake receivers, not a real merchant server. Nothing has run on mainnet.
 
 **Audit status: the contract this service talks to has not been audited. This service has not been audited either.**
 
@@ -55,7 +55,7 @@ node --env-file=.env dist/main.js
 
 Read only (no key) is the default and is a good first run: it syncs and serves the API but never submits.
 
-Against the public testnet deployment recorded in the repository's `docs/TESTNET.md` (testnet is wiped on the dates listed there):
+Against the public testnet deployment recorded in [docs/TESTNET.md](https://github.com/Cadence-Pay/recurring-contracts/blob/main/docs/TESTNET.md) (testnet is wiped on the dates listed there):
 
 ```bash
 STELLAR_NETWORK=testnet \

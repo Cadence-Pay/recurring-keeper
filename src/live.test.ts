@@ -4,7 +4,7 @@ import { loadConfig } from './config.js';
 import { ContractCallError } from './errors.js';
 
 /**
- * Read-only checks against the real testnet deployment from docs/TESTNET.md (in the monorepo).
+ * Read-only checks against the real testnet deployment recorded in https://github.com/Cadence-Pay/recurring-contracts/blob/main/docs/TESTNET.md.
  * They need the network and the testnet contract, which is wiped when testnet resets, so they only
  * run when LIVE_TESTNET=1. They never sign or submit anything.
  */
