@@ -1,5 +1,4 @@
-# Runs when this folder is its own repository. (In the monorepo, GitHub only reads the workflows
-# at the repository root, which do the same job with paths.)
+# Runs the checks from CONTRIBUTING.md on every push and pull request.
 name: ci
 on:
   push:

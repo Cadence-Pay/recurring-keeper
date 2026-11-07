@@ -9,6 +9,7 @@ The keeper holds a signing key. It only pays transaction fees, but a leaked key 
 You need Node 24 or newer and [pnpm](https://pnpm.io).
 
 ```bash
+git clone https://github.com/Cadence-Pay/recurring-keeper.git
 cd recurring-keeper
 pnpm install --frozen-lockfile
 pnpm test
@@ -57,6 +58,8 @@ test(keeper): cover <case>
 2. Comment that you would like to take it, and wait to be assigned. One person per issue at a time.
 3. Ask questions in the issue if the scope is unclear. The scope written there is the limit of the change.
 4. Open a pull request that mentions the issue. If you stop working on it, say so, so someone else can take it.
+
+If an issue carries a Drips Wave label (for example `Stellar Wave`), it is part of a [Drips Wave](https://www.drips.network/wave) cycle. Apply for it in the Drips Wave app; the maintainers assign one applicant, there or on GitHub.
 
 ## Reporting a security problem
 

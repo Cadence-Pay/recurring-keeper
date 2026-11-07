@@ -3,6 +3,14 @@
   "version": "0.1.0",
   "description": "Keeper service for Stellar Recurring: submits due charges, sends webhooks, serves a read API.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Cadence-Pay/recurring-keeper.git"
+  },
+  "homepage": "https://github.com/Cadence-Pay/recurring-keeper#readme",
+  "bugs": {
+    "url": "https://github.com/Cadence-Pay/recurring-keeper/issues"
+  },
   "private": true,
   "type": "module",
   "engines": {
