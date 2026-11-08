@@ -1,3 +1,8 @@
 node_modules
 dist
 .env
+
+# local keeper database (and its write-ahead files)
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
